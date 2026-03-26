@@ -1,0 +1,32 @@
+{
+  "name": "teeth-for-life-backend",
+  "version": "1.0.0",
+  "description": "Teeth For Life dental clinic API",
+  "main": "handler.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node src/migrations/run.js",
+    "offline": "npx serverless offline --httpPort 3000"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.8",
+    "pg": "^8.12.0",
+    "reflect-metadata": "^0.2.1",
+    "serverless-http": "^3.2.0",
+    "typeorm": "^0.3.20",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "serverless": "^3.38.0",
+    "serverless-offline": "^13.3.2"
+  }
+}
