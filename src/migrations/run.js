@@ -1,5 +1,5 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-const { AppDataSource } = require('../db/index');
+import 'dotenv/config';
+import { AppDataSource } from '../db/index.js';
 
 async function runMigrations() {
   try {

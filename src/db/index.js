@@ -1,6 +1,14 @@
-require('reflect-metadata');
-const { DataSource } = require('typeorm');
-const { Patient, Service, Appointment, Review } = require('./schema');
+import 'reflect-metadata';
+import { DataSource } from 'typeorm';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import Patient from '../entities/Patient.js';
+import Service from '../entities/Service.js';
+import Appointment from '../entities/Appointment.js';
+import Review from '../entities/Review.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const isLambda = !!process.env.DATABASE_URL;
 
@@ -24,4 +32,4 @@ const AppDataSource = new DataSource({
   },
 });
 
-module.exports = { AppDataSource };
+export { AppDataSource };

@@ -1,13 +1,13 @@
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const { AppDataSource } = require('./db/index');
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import { AppDataSource } from './db/index.js';
 
-const appointmentRoutes = require('./routes/appointments');
-const serviceRoutes = require('./routes/services');
-const availabilityRoutes = require('./routes/availability');
-const reviewRoutes = require('./routes/reviews');
-const adminRoutes = require('./routes/admin');
+import appointmentRoutes from './routes/appointmentRoutes.js';
+import serviceRoutes from './routes/serviceRoutes.js';
+import availabilityRoutes from './routes/availabilityRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 const app = express();
 
@@ -46,4 +46,4 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-module.exports = app;
+export default app;

@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+import rateLimit from 'express-rate-limit';
 
 const bookingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -9,4 +9,4 @@ const bookingLimiter = rateLimit({
   keyGenerator: (req) => req.ip,
 });
 
-module.exports = { bookingLimiter };
+export { bookingLimiter };

@@ -1,4 +1,4 @@
-class InitialSchema1700000000000 {
+export class InitialSchema1700000000000 {
   name = 'InitialSchema1700000000000';
 
   async up(queryRunner) {
@@ -99,5 +99,3 @@ class InitialSchema1700000000000 {
     await queryRunner.query(`DROP TYPE IF EXISTS appointment_status`);
   }
 }
-
-module.exports = InitialSchema1700000000000;
