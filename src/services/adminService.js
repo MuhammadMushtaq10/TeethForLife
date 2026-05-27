@@ -5,6 +5,48 @@ import { AppDataSource } from '../db/index.js';
 import Appointment from '../entities/Appointment.js';
 import Patient from '../entities/Patient.js';
 
+// The clinic operates in Karachi (Asia/Karachi, UTC+5). Computing "today" via
+// Date#toISOString() would use UTC and be a day behind for the first ~5 hours
+// after local midnight, under-counting the dashboard. These helpers keep all
+// date-boundary math in clinic-local time, as YYYY-MM-DD strings (matching how
+// appointment_date is stored and compared).
+const KARACHI_TZ = 'Asia/Karachi';
+
+function karachiDateStr(date = new Date()) {
+  // en-CA formats as YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: KARACHI_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+// Pure calendar arithmetic on a YYYY-MM-DD string (UTC anchor avoids DST drift).
+function addDays(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().split('T')[0];
+}
+
+function dayOfWeek(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
+}
+
+// Quote a CSV cell: double internal quotes and wrap in quotes, escaping commas,
+// quotes and newlines in any field. Also neutralise spreadsheet formula
+// injection (a leading =,+,-,@ can execute when opened in Excel/Sheets) by
+// prefixing such values with a single quote.
+function csvCell(value) {
+  let s = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 async function login(email, password) {
   if (email !== process.env.ADMIN_EMAIL) {
     return null;
@@ -28,18 +70,15 @@ async function getDashboardData() {
   const appointmentRepo = AppDataSource.getRepository(Appointment);
   const patientRepo = AppDataSource.getRepository(Patient);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = karachiDateStr();
 
   const todayCount = await appointmentRepo.count({
     where: { appointment_date: today },
   });
 
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - mondayOffset);
-  const weekStartStr = weekStart.toISOString().split('T')[0];
+  const dow = dayOfWeek(today);
+  const mondayOffset = dow === 0 ? 6 : dow - 1;
+  const weekStartStr = addDays(today, -mondayOffset);
 
   const weekCount = await appointmentRepo
     .createQueryBuilder('a')
@@ -49,9 +88,7 @@ async function getDashboardData() {
 
   const totalPatients = await patientRepo.count();
 
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(now.getDate() - 30);
-  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+  const thirtyDaysAgoStr = addDays(today, -30);
 
   const completedOrNoShow = await appointmentRepo
     .createQueryBuilder('a')
@@ -163,14 +200,14 @@ async function exportAppointments({ from, to }) {
     a.service?.name || '',
     a.status,
     a.source,
-    (a.notes || '').replace(/"/g, '""'),
+    a.notes || '',
     a.showed_up ? 'Yes' : 'No',
   ]);
 
   const csv = [
-    headers.join(','),
-    ...rows.map(r => r.map(v => `"${v}"`).join(',')),
-  ].join('\n');
+    headers.map(csvCell).join(','),
+    ...rows.map(r => r.map(csvCell).join(',')),
+  ].join('\r\n');
 
   return { csv, from, to };
 }

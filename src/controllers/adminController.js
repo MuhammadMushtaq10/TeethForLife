@@ -82,6 +82,9 @@ async function addAppointment(req, res) {
       },
     });
   } catch (err) {
+    if (err?.code === 'SLOT_TAKEN') {
+      return res.status(409).json({ error: 'This time slot is already booked' });
+    }
     console.error('Admin booking error:', err);
     res.status(500).json({ error: 'Failed to add appointment' });
   }
@@ -99,6 +102,9 @@ async function updateAppointment(req, res) {
 
     res.json({ message: 'Appointment updated', appointment: saved });
   } catch (err) {
+    if (err?.code === 'SLOT_TAKEN') {
+      return res.status(409).json({ error: 'Another active appointment already holds this slot' });
+    }
     console.error('Error updating appointment:', err);
     res.status(500).json({ error: 'Failed to update appointment' });
   }

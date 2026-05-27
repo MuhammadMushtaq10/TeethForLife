@@ -53,6 +53,9 @@ async function bookAppointment(req, res) {
       phone,
     });
   } catch (err) {
+    if (err?.code === 'SLOT_TAKEN') {
+      return res.status(409).json({ error: 'This time slot is already booked' });
+    }
     console.error('Booking error:', err);
     res.status(500).json({ error: 'Failed to book appointment' });
   }
