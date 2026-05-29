@@ -33,14 +33,20 @@ async function bookAppointment(req, res) {
       notes,
     });
 
-    emailService.sendAppointmentConfirmation({
-      email: patient.email,
-      fullName: full_name,
-      serviceName: service.name,
-      date: appointment_date,
-      time: appointment_time,
-      phone,
-    });
+    // Await so the SMTP exchange finishes before the serverless function is frozen.
+    // Wrapped so an email failure never fails the booking itself.
+    try {
+      await emailService.sendAppointmentConfirmation({
+        email: patient.email,
+        fullName: full_name,
+        serviceName: service.name,
+        date: appointment_date,
+        time: appointment_time,
+        phone,
+      });
+    } catch (mailErr) {
+      console.error('Confirmation email failed:', mailErr);
+    }
 
     res.status(201).json({
       message: 'Appointment booked successfully',

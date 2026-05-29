@@ -13,10 +13,12 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER) {
   });
 }
 
-function sendAppointmentConfirmation({ email, fullName, serviceName, date, time, phone }) {
+async function sendAppointmentConfirmation({ email, fullName, serviceName, date, time, phone }) {
   if (!transporter || !email) return;
 
-  transporter.sendMail({
+  // Must be awaited by the caller — on serverless (Vercel), the function instance
+  // is frozen right after the response, so fire-and-forget mail never completes.
+  await transporter.sendMail({
     from: process.env.SMTP_USER,
     to: email,
     subject: 'Appointment Confirmation — Teeth For Life',
@@ -32,7 +34,7 @@ function sendAppointmentConfirmation({ email, fullName, serviceName, date, time,
       <p>We'll confirm via WhatsApp at ${phone} within 1 hour.</p>
       <p>— Teeth For Life Dental Clinic</p>
     `,
-  }).catch(err => console.error('Email send failed:', err));
+  });
 }
 
 async function sendContactMessage({ name, email, phone, subject, message }) {
