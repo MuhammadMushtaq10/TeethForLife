@@ -35,4 +35,28 @@ function sendAppointmentConfirmation({ email, fullName, serviceName, date, time,
   }).catch(err => console.error('Email send failed:', err));
 }
 
-export { sendAppointmentConfirmation };
+async function sendContactMessage({ name, email, phone, subject, message }) {
+  if (!transporter) {
+    throw new Error('Email is not configured (SMTP env vars missing)');
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_USER,
+    to: process.env.CONTACT_TO || process.env.SMTP_USER,
+    replyTo: email,
+    subject: `Contact Form: ${subject}`,
+    html: `
+      <h2>New Contact Message — Teeth For Life</h2>
+      <ul>
+        <li><strong>Name:</strong> ${name}</li>
+        <li><strong>Email:</strong> ${email}</li>
+        <li><strong>Phone:</strong> ${phone || '—'}</li>
+        <li><strong>Subject:</strong> ${subject}</li>
+      </ul>
+      <p><strong>Message:</strong></p>
+      <p>${message.replace(/\n/g, '<br>')}</p>
+    `,
+  });
+}
+
+export { sendAppointmentConfirmation, sendContactMessage };

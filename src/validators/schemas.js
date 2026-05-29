@@ -5,7 +5,7 @@ const pakistaniPhone = z.string().regex(/^(\+92|0)[0-9]{10}$/, 'Invalid Pakistan
 const bookingSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: pakistaniPhone,
-  email: z.string().email().optional().or(z.literal('')),
+  email: z.string().email('A valid email is required'),
   service_id: z.string().uuid('Invalid service ID'),
   appointment_date: z.string().refine((val) => {
     const [y, m, d] = val.split('-').map(Number);
@@ -47,4 +47,12 @@ const availabilityQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
 });
 
-export { bookingSchema, adminBookingSchema, reviewSchema, availabilityQuerySchema };
+const contactSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email'),
+  phone: pakistaniPhone.optional().or(z.literal('')),
+  subject: z.string().min(2, 'Subject is required'),
+  message: z.string().min(5, 'Message must be at least 5 characters').max(2000),
+});
+
+export { bookingSchema, adminBookingSchema, reviewSchema, availabilityQuerySchema, contactSchema };
