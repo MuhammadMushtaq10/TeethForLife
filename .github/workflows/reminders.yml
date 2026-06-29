@@ -1,0 +1,39 @@
+name: WhatsApp Reminders (cron)
+
+# Vercel's Hobby plan can't run sub-daily crons, so the 24h/2h WhatsApp reminder
+# job is triggered from here instead of vercel.json. It hits the CRON_SECRET-
+# protected endpoint every ~15 minutes; the backend itself decides which
+# appointments are due (idempotent, Asia/Karachi).
+#
+# SETUP (one-time): add a repository secret named CRON_SECRET
+#   GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+# Its value MUST match the CRON_SECRET environment variable set on the backend in Vercel.
+#
+# NOTE: GitHub's scheduled runs can be delayed or skipped under load; the 24h/2h
+# windows are an hour wide so occasional slippage is fine. For tighter timing,
+# use cron-job.org instead (same URL + Authorization header).
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminder job
+        run: |
+          URL="https://teeth-for-life.vercel.app/api/cron/reminders"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "$URL")
+          echo "HTTP $code"
+          if [ "$code" = "401" ]; then
+            echo "::error::401 from reminders endpoint — set the CRON_SECRET repo secret to match the backend's Vercel CRON_SECRET."
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "::error::Reminder trigger failed (HTTP $code)."
+            exit 1
+          fi
+          echo "Reminders processed."
