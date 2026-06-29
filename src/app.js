@@ -9,8 +9,14 @@ import availabilityRoutes from './routes/availabilityRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import webhookRoutes from './routes/webhook.js';
+import cronRoutes from './routes/cron.js';
 
 const app = express();
+
+// Behind Vercel's proxy: trust X-Forwarded-* so req.protocol/host are correct
+// (needed for Twilio webhook signature validation and rate-limit client IPs).
+app.set('trust proxy', true);
 
 app.use(helmet());
 app.use(cors({
@@ -18,6 +24,9 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+// Twilio webhooks POST application/x-www-form-urlencoded — parse it globally
+// so it's available before the Twilio signature-validation middleware.
+app.use(express.urlencoded({ extended: false }));
 
 // Lazy DB init for Lambda cold starts
 app.use(async (req, res, next) => {
@@ -38,6 +47,8 @@ app.use('/api/availability', availabilityRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/webhook', webhookRoutes);
+app.use('/api/cron', cronRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

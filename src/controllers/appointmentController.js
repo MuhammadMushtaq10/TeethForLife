@@ -3,6 +3,7 @@ import * as appointmentService from '../services/appointmentService.js';
 import * as patientService from '../services/patientService.js';
 import * as dentalService from '../services/dentalService.js';
 import * as emailService from '../services/emailService.js';
+import * as whatsappService from '../services/whatsappService.js';
 
 async function bookAppointment(req, res) {
   try {
@@ -46,6 +47,22 @@ async function bookAppointment(req, res) {
       });
     } catch (mailErr) {
       console.error('Confirmation email failed:', mailErr);
+    }
+
+    // Fire-and-forget WhatsApp confirmation (same pattern as email): awaited so
+    // the Twilio call finishes before the serverless function freezes, wrapped
+    // so a WhatsApp failure never fails the booking. whatsappService itself
+    // also never throws, but the try/catch is kept for symmetry/safety.
+    try {
+      await whatsappService.sendBookingConfirmation({
+        patientName: full_name,
+        phone,
+        serviceName: service.name,
+        date: appointment_date,
+        time: appointment_time,
+      });
+    } catch (waErr) {
+      console.error('Confirmation WhatsApp failed:', waErr);
     }
 
     res.status(201).json({

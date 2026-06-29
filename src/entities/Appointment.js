@@ -39,6 +39,19 @@ const Appointment = new EntitySchema({
       type: 'boolean',
       default: false,
     },
+    reminder_sent_24h: {
+      type: 'boolean',
+      default: false,
+    },
+    reminder_sent_2h: {
+      type: 'boolean',
+      default: false,
+    },
+    booked_via: {
+      type: 'varchar',
+      length: 20,
+      default: 'website',
+    },
     created_at: {
       type: 'timestamp',
       createDate: true,

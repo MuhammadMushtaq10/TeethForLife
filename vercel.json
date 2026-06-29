@@ -6,5 +6,8 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index.js" }
+  ],
+  "crons": [
+    { "path": "/api/cron/reminders", "schedule": "*/15 * * * *" }
   ]
 }

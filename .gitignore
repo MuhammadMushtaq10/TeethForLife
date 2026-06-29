@@ -3,6 +3,9 @@ node_modules/
 .serverless/
 dist/
 
+# graphify generated knowledge-graph output
+graphify-out/
+
 # Local AI assistant notes — not for the repo
 CLAUDE.md
 ClaudeMONO.md

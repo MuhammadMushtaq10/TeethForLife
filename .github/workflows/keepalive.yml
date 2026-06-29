@@ -1,0 +1,32 @@
+name: Keep Supabase Awake
+
+# Free-tier Supabase projects auto-pause after ~7 days with no DB activity, and
+# are eventually deleted if left paused. This pings a DB-backed endpoint on a
+# schedule so the project never goes idle. A read query is enough — Supabase's
+# inactivity timer resets on ANY database activity (no need to write data).
+#
+# NOTE: it must hit /api/services (which queries the DB), NOT /api/health
+# (which does not touch the database and would not count as activity).
+
+on:
+  schedule:
+    # ~every 3 days at 09:00 UTC (runs on days 1,4,7,...,31 of the month).
+    # Worst-case gap is well under the 7-day pause window.
+    - cron: "0 9 */3 * *"
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping DB-backed endpoint to keep Supabase active
+        run: |
+          URL="https://teeth-for-life.vercel.app/api/services"
+          echo "Pinging $URL ..."
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Keep-alive failed (HTTP $code). Supabase may be paused/down or the DB is unreachable."
+            exit 1
+          fi
+          echo "OK — database responded, project stays awake."

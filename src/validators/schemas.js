@@ -25,6 +25,37 @@ const bookingSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Same rules as bookingSchema but email is optional (WhatsApp patients may not
+// provide one). Used by the inbound WhatsApp booking flow before insert.
+const isFutureDate = (val) => {
+  const [y, m, d] = val.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date >= today;
+};
+const isNotSunday = (val) => {
+  const [y, m, d] = val.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay() !== 0;
+};
+
+const whatsappBookingSchema = z.object({
+  full_name: z.string().min(2, 'Name must be at least 2 characters'),
+  phone: pakistaniPhone,
+  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
+  service_id: z.string().uuid('Invalid service ID'),
+  appointment_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')
+    .refine(isFutureDate, 'Date must be today or in the future')
+    .refine(isNotSunday, 'Cannot book on Sundays'),
+  appointment_time: z.string().refine((val) => {
+    const [h, m] = val.split(':').map(Number);
+    return h >= 9 && h < 19 && (m === 0 || m === 30);
+  }, 'Time must be between 09:00 and 18:30 in 30-min intervals'),
+  notes: z.string().optional(),
+});
+
 const adminBookingSchema = z.object({
   full_name: z.string().min(2),
   phone: pakistaniPhone,
@@ -55,4 +86,4 @@ const contactSchema = z.object({
   message: z.string().min(5, 'Message must be at least 5 characters').max(2000),
 });
 
-export { bookingSchema, adminBookingSchema, reviewSchema, availabilityQuerySchema, contactSchema };
+export { bookingSchema, whatsappBookingSchema, adminBookingSchema, reviewSchema, availabilityQuerySchema, contactSchema };
