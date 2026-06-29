@@ -6,6 +6,10 @@ import Patient from '../entities/Patient.js';
 import Service from '../entities/Service.js';
 import Appointment from '../entities/Appointment.js';
 import Review from '../entities/Review.js';
+import Treatment from '../entities/Treatment.js';
+import Invoice from '../entities/Invoice.js';
+import Payment from '../entities/Payment.js';
+import Expense from '../entities/Expense.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,7 +26,7 @@ const AppDataSource = new DataSource({
   database: !isLambda ? (process.env.DB_NAME || 'TeethForLife1') : undefined,
   synchronize: false,
   logging: process.env.NODE_ENV !== 'production',
-  entities: [Patient, Service, Appointment, Review],
+  entities: [Patient, Service, Appointment, Review, Treatment, Invoice, Payment, Expense],
   migrations: [__dirname + '/../migrations/*-*.js'],
   ssl: isLambda ? { rejectUnauthorized: false } : false,
   extra: {

@@ -4,6 +4,7 @@ import { In, MoreThanOrEqual } from 'typeorm';
 import { AppDataSource } from '../db/index.js';
 import Appointment from '../entities/Appointment.js';
 import Patient from '../entities/Patient.js';
+import * as invoiceService from './invoiceService.js';
 
 // The clinic operates in Karachi (Asia/Karachi, UTC+5). Computing "today" via
 // Date#toISOString() would use UTC and be a day behind for the first ~5 hours
@@ -154,8 +155,13 @@ async function getAppointments({ date, status, search }) {
 
   const appointments = await qb.getMany();
 
+  // Attach invoice status / amount paid / balance due (non-cancelled invoice
+  // for the appointment, if any) so the list doubles as a billing overview.
+  const invoiceMap = await invoiceService.summarizeByAppointmentIds(appointments.map(a => a.id));
+
   return appointments.map(a => ({
     id: a.id,
+    patient_id: a.patient_id,
     patient_name: a.patient?.full_name,
     patient_phone: a.patient?.phone,
     patient_email: a.patient?.email,
@@ -168,6 +174,7 @@ async function getAppointments({ date, status, search }) {
     showed_up: a.showed_up,
     created_at: a.created_at,
     updated_at: a.updated_at,
+    invoice: invoiceMap[a.id] || null,
   }));
 }
 

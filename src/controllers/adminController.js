@@ -3,6 +3,7 @@ import * as adminService from '../services/adminService.js';
 import * as appointmentService from '../services/appointmentService.js';
 import * as patientService from '../services/patientService.js';
 import * as dentalService from '../services/dentalService.js';
+import * as invoiceService from '../services/invoiceService.js';
 
 async function login(req, res) {
   try {
@@ -100,7 +101,27 @@ async function updateAppointment(req, res) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    res.json({ message: 'Appointment updated', appointment: saved });
+    // On completion, auto-create an invoice from the booked service price so the
+    // admin doesn't have to do it by hand. Idempotent (skips if one exists) and
+    // never fails the status update — invoicing is a side effect, not the point.
+    let invoice;
+    if (saved.status === 'COMPLETED') {
+      try {
+        const inv = await invoiceService.autoCreateForAppointment(saved.id);
+        if (inv) {
+          invoice = {
+            id: inv.id,
+            invoice_number: inv.invoice_number,
+            status: inv.status,
+            total_amount: Number(inv.total_amount),
+          };
+        }
+      } catch (invErr) {
+        console.error('Auto-invoice on completion failed:', invErr);
+      }
+    }
+
+    res.json({ message: 'Appointment updated', appointment: saved, invoice });
   } catch (err) {
     if (err?.code === 'SLOT_TAKEN') {
       return res.status(409).json({ error: 'Another active appointment already holds this slot' });
