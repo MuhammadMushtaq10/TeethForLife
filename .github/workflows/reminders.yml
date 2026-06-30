@@ -14,9 +14,13 @@ name: WhatsApp Reminders (cron)
 # use cron-job.org instead (same URL + Authorization header).
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}
+  # Scheduled runs are DISABLED. The every-15-min cron failed on every run because
+  # the CRON_SECRET repository secret is not set (the endpoint returns 401).
+  # To re-enable: add the CRON_SECRET repo secret (see the SETUP note above) so it
+  # matches the backend's Vercel CRON_SECRET, then uncomment the schedule block.
+  # schedule:
+  #   - cron: "*/15 * * * *"
+  workflow_dispatch: {} # manual runs from the Actions tab still work
 
 jobs:
   trigger:
