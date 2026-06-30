@@ -131,6 +131,21 @@ async function updateAppointment(req, res) {
   }
 }
 
+async function deleteAppointment(req, res) {
+  try {
+    const force = req.query.force === 'true';
+    const result = await appointmentService.deleteAppointment(req.params.id, { force });
+    if (result === null) return res.status(404).json({ error: 'Appointment not found' });
+    res.json({ message: 'Appointment deleted' });
+  } catch (err) {
+    if (err?.code === 'HAS_INVOICE') {
+      return res.status(409).json({ error: err.message, invoice_count: err.invoiceCount });
+    }
+    console.error('Delete appointment error:', err);
+    res.status(500).json({ error: 'Failed to delete appointment' });
+  }
+}
+
 async function listPatients(req, res) {
   try {
     const { search } = req.query;
@@ -156,4 +171,4 @@ async function exportAppointments(req, res) {
   }
 }
 
-export { login, getDashboard, listAppointments, addAppointment, updateAppointment, listPatients, exportAppointments };
+export { login, getDashboard, listAppointments, addAppointment, updateAppointment, deleteAppointment, listPatients, exportAppointments };

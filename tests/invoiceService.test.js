@@ -1,6 +1,6 @@
 import { test, describe, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { initDb, resetDb, closeDb, makePatient, makeAppointment, firstService } from './helpers.mjs';
+import { initDb, resetDb, closeDb, makePatient, makeAppointment, firstService, AppDataSource } from './helpers.mjs';
 import * as invoiceService from '../src/services/invoiceService.js';
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -153,6 +153,22 @@ describe('getPatientLedger', () => {
     assert.equal(ledger.summary.totalCharged, 4000); // alias
   });
 
+  test('each invoice row exposes total/paid/balance aliases (the patient-ledger UI reads these)', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 4000 });
+    await invoiceService.addPayment(inv.id, { amount: 1500, paymentMethod: 'CASH', paymentDate: TODAY }); // partial
+    const ledger = await invoiceService.getPatientLedger(p.id);
+    const row = ledger.invoices.find((i) => i.id === inv.id);
+    // short aliases (were missing -> ledger showed PKR 0 for a partial payment)
+    assert.equal(row.total, 4000);
+    assert.equal(row.paid, 1500);
+    assert.equal(row.balance, 2500);
+    // long-form fields remain for any consumer relying on them
+    assert.equal(row.total_amount, 4000);
+    assert.equal(row.total_paid, 1500);
+    assert.equal(row.balance_due, 2500);
+  });
+
   test('returns null for unknown patient', async () => {
     assert.equal(await invoiceService.getPatientLedger('11111111-1111-1111-1111-111111111111'), null);
   });
@@ -182,6 +198,76 @@ describe('cancelInvoice', () => {
   });
   test('returns null for unknown id', async () => {
     assert.equal(await invoiceService.cancelInvoice('11111111-1111-1111-1111-111111111111'), null);
+  });
+});
+
+describe('deleteInvoice', () => {
+  test('deletes an invoice with no payments', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 1000 });
+    const res = await invoiceService.deleteInvoice(inv.id);
+    assert.equal(res.id, inv.id);
+    assert.equal(res.paymentsDeleted, 0);
+    assert.equal(await invoiceService.getInvoiceWithPayments(inv.id), null);
+  });
+
+  test('refuses (throws HAS_PAYMENTS) when the invoice has payments and force is not set', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 1000 });
+    await invoiceService.addPayment(inv.id, { amount: 500, paymentMethod: 'CASH', paymentDate: TODAY });
+    await assert.rejects(
+      () => invoiceService.deleteInvoice(inv.id),
+      (e) => e.code === 'HAS_PAYMENTS' && e.paymentCount === 1
+    );
+    // invoice still present after the refused delete
+    assert.notEqual(await invoiceService.getInvoiceWithPayments(inv.id), null);
+  });
+
+  test('force=true cascades the payments away with the invoice', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 1000 });
+    await invoiceService.addPayment(inv.id, { amount: 500, paymentMethod: 'CASH', paymentDate: TODAY });
+    const res = await invoiceService.deleteInvoice(inv.id, { force: true });
+    assert.equal(res.paymentsDeleted, 1);
+    assert.equal(await invoiceService.getInvoiceWithPayments(inv.id), null);
+    const [{ count }] = await AppDataSource.query('SELECT COUNT(*) AS count FROM payments WHERE invoice_id = $1', [inv.id]);
+    assert.equal(Number(count), 0);
+  });
+
+  test('returns null for unknown id', async () => {
+    assert.equal(await invoiceService.deleteInvoice('11111111-1111-1111-1111-111111111111'), null);
+  });
+});
+
+describe('deletePayment', () => {
+  test('deleting a payment re-derives invoice status (PAID -> PARTIALLY_PAID)', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 3000 });
+    await invoiceService.addPayment(inv.id, { amount: 1000, paymentMethod: 'CASH', paymentDate: TODAY });
+    const second = await invoiceService.addPayment(inv.id, { amount: 2000, paymentMethod: 'CASH', paymentDate: TODAY });
+    assert.equal(second.invoice.status, 'PAID');
+
+    const res = await invoiceService.deletePayment(inv.id, second.payment.id);
+    assert.equal(res.id, second.payment.id);
+    const full = await invoiceService.getInvoiceWithPayments(inv.id);
+    assert.equal(full.paid, 1000);
+    assert.equal(full.status, 'PARTIALLY_PAID');
+  });
+
+  test('deleting the only payment reverts the invoice to UNPAID', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 1000 });
+    const pay = await invoiceService.addPayment(inv.id, { amount: 1000, paymentMethod: 'CASH', paymentDate: TODAY });
+    await invoiceService.deletePayment(inv.id, pay.payment.id);
+    const full = await invoiceService.getInvoiceWithPayments(inv.id);
+    assert.equal(full.paid, 0);
+    assert.equal(full.status, 'UNPAID');
+  });
+
+  test('returns null when the payment does not belong to the invoice', async () => {
+    const p = await makePatient();
+    const inv = await invoiceService.createInvoice(null, p.id, { subtotal: 1000 });
+    assert.equal(await invoiceService.deletePayment(inv.id, '11111111-1111-1111-1111-111111111111'), null);
   });
 });
 

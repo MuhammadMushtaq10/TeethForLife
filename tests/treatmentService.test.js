@@ -53,4 +53,12 @@ describe('treatmentService', () => {
     const list = await treatmentService.getByAppointment(appt.id);
     assert.equal(list.length, 1);
   });
+
+  test('deleteTreatment removes the row; unknown id -> false', async () => {
+    const p = await makePatient();
+    const t = await treatmentService.createTreatment({ patient_id: p.id, treatment_date: '2026-06-20' });
+    assert.equal(await treatmentService.deleteTreatment(t.id), true);
+    assert.equal(await treatmentService.getById(t.id), null);
+    assert.equal(await treatmentService.deleteTreatment('11111111-1111-1111-1111-111111111111'), false);
+  });
 });

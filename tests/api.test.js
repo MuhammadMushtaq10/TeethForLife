@@ -26,7 +26,7 @@ before(async () => {
   server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  const login = await api('POST', '/api/admin/login', {
+  const login = await api('POST', '/api/admin', {
     body: { email: process.env.ADMIN_EMAIL, password: process.env.TEST_ADMIN_PASSWORD },
   });
   token = login.data.token;
@@ -46,13 +46,13 @@ describe('auth', () => {
   });
 
   test('login with wrong password -> 401', async () => {
-    const r = await api('POST', '/api/admin/login', { body: { email: process.env.ADMIN_EMAIL, password: 'wrong' } });
+    const r = await api('POST', '/api/admin', { body: { email: process.env.ADMIN_EMAIL, password: 'wrong' } });
     assert.equal(r.status, 401);
   });
 
   test('login with correct credentials -> 200 + token', async () => {
     assert.ok(token, 'token issued in before()');
-    const r = await api('POST', '/api/admin/login', { body: { email: process.env.ADMIN_EMAIL, password: process.env.TEST_ADMIN_PASSWORD } });
+    const r = await api('POST', '/api/admin', { body: { email: process.env.ADMIN_EMAIL, password: process.env.TEST_ADMIN_PASSWORD } });
     assert.equal(r.status, 200);
     assert.ok(r.data.token);
   });

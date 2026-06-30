@@ -44,6 +44,17 @@ async function updateTreatment(req, res) {
   }
 }
 
+async function deleteTreatment(req, res) {
+  try {
+    const ok = await treatmentService.deleteTreatment(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Treatment not found' });
+    res.json({ message: 'Treatment deleted' });
+  } catch (err) {
+    console.error('Delete treatment error:', err);
+    res.status(500).json({ error: 'Failed to delete treatment' });
+  }
+}
+
 async function getPatientTreatments(req, res) {
   try {
     const treatments = await treatmentService.getPatientTreatmentHistory(req.params.id);
@@ -54,4 +65,4 @@ async function getPatientTreatments(req, res) {
   }
 }
 
-export { createTreatment, getTreatment, updateTreatment, getPatientTreatments };
+export { createTreatment, getTreatment, updateTreatment, deleteTreatment, getPatientTreatments };

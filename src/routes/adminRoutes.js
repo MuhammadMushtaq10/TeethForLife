@@ -8,8 +8,8 @@ import * as reportController from '../controllers/reportController.js';
 
 const router = Router();
 
-// Public
-router.post('/login', adminController.login);
+// Public — admin login (POST /api/admin)
+router.post('/', adminController.login);
 
 // Protected — all routes below require JWT auth
 router.use(authMiddleware);
@@ -20,6 +20,7 @@ router.get('/appointments', adminController.listAppointments);
 router.post('/appointments', adminController.addAppointment);
 router.get('/appointments/export', adminController.exportAppointments);
 router.patch('/appointments/:id', adminController.updateAppointment);
+router.delete('/appointments/:id', adminController.deleteAppointment);
 
 // ── Patients (+ accounting sub-resources) ─────────────────────────────────────
 router.get('/patients', adminController.listPatients);
@@ -34,12 +35,15 @@ router.get('/invoices/:id', invoiceController.getInvoice);
 router.get('/invoices/:id/pdf', invoiceController.getInvoicePdf);
 router.patch('/invoices/:id', invoiceController.updateInvoice);
 router.post('/invoices/:id/payments', invoiceController.addPayment);
+router.delete('/invoices/:id/payments/:paymentId', invoiceController.deletePayment);
 router.delete('/invoices/:id/cancel', invoiceController.cancelInvoice);
+router.delete('/invoices/:id', invoiceController.deleteInvoice);
 
 // ── Treatments ────────────────────────────────────────────────────────────────
 router.post('/treatments', treatmentController.createTreatment);
 router.get('/treatments/:id', treatmentController.getTreatment);
 router.patch('/treatments/:id', treatmentController.updateTreatment);
+router.delete('/treatments/:id', treatmentController.deleteTreatment);
 
 // ── Expenses ──────────────────────────────────────────────────────────────────
 router.post('/expenses', expenseController.createExpense);

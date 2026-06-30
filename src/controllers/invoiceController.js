@@ -120,6 +120,33 @@ async function cancelInvoice(req, res) {
   }
 }
 
+async function deleteInvoice(req, res) {
+  try {
+    const force = req.query.force === 'true';
+    const result = await invoiceService.deleteInvoice(req.params.id, { force });
+    if (!result) return res.status(404).json({ error: 'Invoice not found' });
+    res.json({ message: 'Invoice deleted', id: result.id, payments_deleted: result.paymentsDeleted });
+  } catch (err) {
+    if (err?.code === 'HAS_PAYMENTS') {
+      return res.status(409).json({ error: err.message, payment_count: err.paymentCount });
+    }
+    console.error('Delete invoice error:', err);
+    res.status(500).json({ error: 'Failed to delete invoice' });
+  }
+}
+
+async function deletePayment(req, res) {
+  try {
+    const removed = await invoiceService.deletePayment(req.params.id, req.params.paymentId);
+    if (!removed) return res.status(404).json({ error: 'Payment not found' });
+    const invoice = await invoiceService.getInvoiceWithPayments(req.params.id);
+    res.json({ message: 'Payment deleted', invoice });
+  } catch (err) {
+    console.error('Delete payment error:', err);
+    res.status(500).json({ error: 'Failed to delete payment' });
+  }
+}
+
 async function getInvoicePdf(req, res) {
   try {
     const invoice = await invoiceService.getInvoiceWithPayments(req.params.id);
@@ -175,6 +202,8 @@ export {
   updateInvoice,
   addPayment,
   cancelInvoice,
+  deleteInvoice,
+  deletePayment,
   getInvoicePdf,
   getPatientLedger,
   getPatientLedgerPdf,

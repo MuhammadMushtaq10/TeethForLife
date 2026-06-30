@@ -275,6 +275,12 @@ async function getPatientLedger(patientId) {
       total_amount: total,
       total_paid: paid,
       balance_due: round2(total - paid),
+      // Short aliases the admin UI reads (total / paid / balance) — keep in sync
+      // with listInvoices / getInvoiceWithPayments so every invoice-returning
+      // endpoint has the same shape.
+      total,
+      paid,
+      balance: round2(total - paid),
       status: inv.status,
       payments: [...(inv.payments || [])]
         .sort((a, b) => new Date(a.payment_date) - new Date(b.payment_date))
@@ -342,6 +348,67 @@ async function cancelInvoice(invoiceId) {
   if (!invoice) return null;
   invoice.status = 'CANCELLED';
   return repo.save(invoice);
+}
+
+// Hard-delete an invoice. Prefer cancelInvoice for real billing corrections —
+// this is for removing erroneous/test records. Guarded: refuses if the invoice
+// has recorded payments (cash already taken) unless `force` is set, since the
+// delete cascades those payment rows away too. Returns null if not found,
+// throws HAS_PAYMENTS (code) when blocked, else { id, paymentsDeleted }.
+async function deleteInvoice(invoiceId, { force = false } = {}) {
+  return AppDataSource.transaction(async (manager) => {
+    const repo = manager.getRepository(Invoice);
+    const invoice = await repo.findOne({ where: { id: invoiceId } });
+    if (!invoice) return null;
+
+    const [{ count }] = await manager.query(
+      `SELECT COUNT(*) AS count FROM payments WHERE invoice_id = $1`,
+      [invoiceId]
+    );
+    const paymentCount = num(count);
+
+    if (paymentCount > 0 && !force) {
+      const err = new Error(
+        `Invoice has ${paymentCount} recorded payment(s). Delete the payments first, or pass force=true to delete the invoice and its payments.`
+      );
+      err.code = 'HAS_PAYMENTS';
+      err.paymentCount = paymentCount;
+      throw err;
+    }
+
+    // payments.invoice_id is ON DELETE CASCADE, but delete explicitly so the
+    // behaviour holds regardless of the live FK config.
+    await manager.getRepository(Payment).delete({ invoice_id: invoiceId });
+    await repo.delete({ id: invoiceId });
+    return { id: invoiceId, paymentsDeleted: paymentCount };
+  });
+}
+
+// Delete a single payment and re-derive the invoice's status from what remains.
+// Scoped to the invoice (paymentId must belong to invoiceId) so a mismatched
+// pair 404s rather than touching an unrelated invoice. A CANCELLED invoice stays
+// CANCELLED. Returns null if the payment isn't found, else { id }.
+async function deletePayment(invoiceId, paymentId) {
+  return AppDataSource.transaction(async (manager) => {
+    const invRepo = manager.getRepository(Invoice);
+    const payRepo = manager.getRepository(Payment);
+
+    const payment = await payRepo.findOne({ where: { id: paymentId, invoice_id: invoiceId } });
+    if (!payment) return null;
+
+    await payRepo.delete({ id: paymentId });
+
+    const invoice = await invRepo.findOne({ where: { id: invoiceId } });
+    if (invoice && invoice.status !== 'CANCELLED') {
+      const [{ paid }] = await manager.query(
+        `SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE invoice_id = $1`,
+        [invoiceId]
+      );
+      invoice.status = computeStatus(round2(invoice.total_amount), round2(paid));
+      await invRepo.save(invoice);
+    }
+    return { id: paymentId };
+  });
 }
 
 // ── STEP 5 helpers ─────────────────────────────────────────────────────────
@@ -415,6 +482,8 @@ export {
   getPatientLedger,
   updateInvoice,
   cancelInvoice,
+  deleteInvoice,
+  deletePayment,
   autoCreateForAppointment,
   summarizeByAppointmentIds,
 };

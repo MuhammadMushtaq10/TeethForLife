@@ -79,6 +79,38 @@ async function updateAppointment(id, { status, notes, showed_up }) {
   }
 }
 
+// Delete an appointment. Prefer setting status CANCELLED (via updateAppointment)
+// for real cancellations — this is for removing erroneous/test entries. Guarded:
+// refuses if a non-cancelled invoice is linked (deleting would orphan a billing
+// record) unless `force` is set. invoices.appointment_id and
+// treatments.appointment_id are ON DELETE SET NULL, so with force those rows
+// survive but lose their link. Returns null if not found, throws HAS_INVOICE
+// (code) when blocked, else true.
+async function deleteAppointment(id, { force = false } = {}) {
+  const repo = getRepo();
+  const appointment = await repo.findOne({ where: { id } });
+  if (!appointment) return null;
+
+  if (!force) {
+    const [{ count }] = await AppDataSource.query(
+      `SELECT COUNT(*) AS count FROM invoices WHERE appointment_id = $1 AND status <> 'CANCELLED'`,
+      [id]
+    );
+    const invoiceCount = Number(count) || 0;
+    if (invoiceCount > 0) {
+      const err = new Error(
+        `This appointment has ${invoiceCount} active invoice(s). Delete or cancel the invoice first, or pass force=true to delete the appointment (invoices/treatments are kept but unlinked).`
+      );
+      err.code = 'HAS_INVOICE';
+      err.invoiceCount = invoiceCount;
+      throw err;
+    }
+  }
+
+  await repo.delete({ id });
+  return true;
+}
+
 // ── Phase 4 (WhatsApp) helpers ───────────────────────────────────────────
 
 // Candidate appointments for the reminder cron: active status, on or after
@@ -133,6 +165,7 @@ export {
   createAppointment,
   findById,
   updateAppointment,
+  deleteAppointment,
   SlotTakenError,
   findRemindable,
   findLatestByPhone,

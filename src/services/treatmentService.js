@@ -32,6 +32,13 @@ async function updateTreatment(id, data) {
   return repo.save(treatment);
 }
 
+// Delete a treatment record. Treatments are leaf records (nothing references
+// them), so no guard is needed. Returns true if a row was removed, else false.
+async function deleteTreatment(id) {
+  const res = await getRepo().delete({ id });
+  return (res.affected || 0) > 0;
+}
+
 async function getById(id) {
   const t = await getRepo().findOne({
     where: { id },
@@ -79,6 +86,7 @@ function shape(t) {
 export {
   createTreatment,
   updateTreatment,
+  deleteTreatment,
   getById,
   getPatientTreatmentHistory,
   getByAppointment,
