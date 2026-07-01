@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "migrate": "node src/migrations/run.js",
+    "test-schema:setup": "node scripts/setup-test-schema.mjs",
     "offline": "npx serverless offline --httpPort 3000",
     "test:setup": "node tests/prepare-db.mjs",
     "test": "node --test --test-concurrency=1 --import ./tests/env.mjs \"tests/**/*.test.js\"",

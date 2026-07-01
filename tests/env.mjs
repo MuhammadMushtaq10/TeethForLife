@@ -20,5 +20,8 @@ for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'TWILIO_ACCOUNT_SID', 'T
 // Deterministic admin credentials for the API auth tests, independent of .env.
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.ADMIN_EMAIL = 'admin@test.local';
-process.env.TEST_ADMIN_PASSWORD = 'Test1234!';
+process.env.TEST_ADMIN_PASSWORD = 'Test1234!'; // shared plaintext for both accounts
 process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('Test1234!', 10);
+// The sandbox ("test mode") admin account.
+process.env.TEST_ADMIN_EMAIL = 'sandbox@test.local';
+process.env.TEST_ADMIN_PASSWORD_HASH = bcrypt.hashSync('Test1234!', 10);

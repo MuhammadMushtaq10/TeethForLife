@@ -48,23 +48,39 @@ function csvCell(value) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-async function login(email, password) {
-  if (email !== process.env.ADMIN_EMAIL) {
-    return null;
-  }
-
-  const isValid = await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH);
-  if (!isValid) {
-    return null;
-  }
-
+// `mode` is baked into the token and read by the auth middleware to pick the DB
+// schema: 'live' → public (real clinic data), 'test' → the isolated `test`
+// sandbox schema. The frontend also reads it to flag test sessions.
+function issueToken(email, mode) {
   const token = jwt.sign(
-    { email, role: 'admin' },
+    { email, role: 'admin', mode },
     process.env.JWT_SECRET,
     { expiresIn: '8h' }
   );
+  return { token, email, mode };
+}
 
-  return { token, email };
+async function login(email, password) {
+  // Live admin — real clinic data.
+  if (
+    email === process.env.ADMIN_EMAIL &&
+    process.env.ADMIN_PASSWORD_HASH &&
+    (await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH))
+  ) {
+    return issueToken(email, 'live');
+  }
+
+  // Test admin — isolated sandbox schema; entries here never touch live data.
+  if (
+    process.env.TEST_ADMIN_EMAIL &&
+    email === process.env.TEST_ADMIN_EMAIL &&
+    process.env.TEST_ADMIN_PASSWORD_HASH &&
+    (await bcrypt.compare(password, process.env.TEST_ADMIN_PASSWORD_HASH))
+  ) {
+    return issueToken(email, 'test');
+  }
+
+  return null;
 }
 
 async function getDashboardData() {
