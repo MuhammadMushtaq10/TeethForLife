@@ -53,6 +53,8 @@ router.delete('/expenses/:id', expenseController.deleteExpense);
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 router.get('/reports/daily', reportController.daily);
+router.get('/reports/weekly/pdf', reportController.weeklyPdf);
+router.get('/reports/weekly', reportController.weekly);
 router.get('/reports/monthly/pdf', reportController.monthlyPdf);
 router.get('/reports/monthly', reportController.monthly);
 router.get('/reports/yearly', reportController.yearly);

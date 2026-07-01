@@ -9,3 +9,8 @@ graphify-out/
 # Local AI assistant notes — not for the repo
 CLAUDE.md
 ClaudeMONO.md
+
+# Full-size source logos (~5.7MB each). Only the generated, downscaled
+# teethforLife_watermark.png is used at runtime and committed.
+src/assests/teethforLife_LOGO.png
+src/config/teethforLife_LOGO.png

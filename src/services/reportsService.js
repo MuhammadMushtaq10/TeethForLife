@@ -39,6 +39,199 @@ async function sumExpenses(start, end) {
   return round2(total);
 }
 
+// One calendar day after a YYYY-MM-DD string (UTC-anchored, DST-safe).
+function addDaysStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function dayLabel(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${d} ${MONTH_NAMES_SHORT[m - 1]} ${y}`;
+}
+
+// ── Shared period breakdowns (used by both monthly and weekly reports) ───────
+
+// Revenue grouped by the service behind each payment's invoice (where earned).
+async function revenueByService(start, end) {
+  const rows = await q(
+    `SELECT COALESCE(s.name, 'Other / Unlinked') AS service_name,
+            COALESCE(SUM(p.amount), 0) AS revenue,
+            COUNT(p.id) AS payment_count
+       FROM payments p
+       JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN appointments a ON a.id = i.appointment_id
+       LEFT JOIN services s ON s.id = a.service_id
+      WHERE p.payment_date >= $1 AND p.payment_date < $2
+      GROUP BY s.name ORDER BY revenue DESC`,
+    [start, end]
+  );
+  return rows.map((r) => ({ service_name: r.service_name, revenue: round2(r.revenue), payment_count: num(r.payment_count) }));
+}
+
+// Revenue grouped by payment method (how the money came in).
+async function revenueByMethod(start, end) {
+  const rows = await q(
+    `SELECT payment_method, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count
+       FROM payments WHERE payment_date >= $1 AND payment_date < $2
+      GROUP BY payment_method ORDER BY amount DESC`,
+    [start, end]
+  );
+  return rows.map((r) => ({ method: r.payment_method, amount: round2(r.amount), count: num(r.count) }));
+}
+
+// Expenses grouped by category (summary breakdown).
+async function expensesByCategory(start, end) {
+  const rows = await q(
+    `SELECT category, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count
+       FROM expenses WHERE expense_date >= $1 AND expense_date < $2
+      GROUP BY category ORDER BY amount DESC`,
+    [start, end]
+  );
+  return rows.map((r) => ({ category: r.category, amount: round2(r.amount), count: num(r.count) }));
+}
+
+// Every individual payment received in the period — who paid what, when, how.
+async function paymentItems(start, end) {
+  const rows = await q(
+    `SELECT p.id, p.payment_date::text AS payment_date, p.payment_method, p.amount,
+            pt.full_name AS patient_name, i.invoice_number
+       FROM payments p
+       JOIN patients pt ON pt.id = p.patient_id
+       LEFT JOIN invoices i ON i.id = p.invoice_id
+      WHERE p.payment_date >= $1 AND p.payment_date < $2
+      ORDER BY p.payment_date ASC, p.amount DESC`,
+    [start, end]
+  );
+  return rows.map((p) => ({
+    id: p.id,
+    payment_date: p.payment_date,
+    patient_name: p.patient_name,
+    invoice_number: p.invoice_number,
+    method: p.payment_method,
+    amount: round2(p.amount),
+  }));
+}
+
+// Every individual expense line in the period (itemised breakdown).
+async function expenseItems(start, end) {
+  const rows = await q(
+    `SELECT id, expense_date::text AS expense_date, category, description, vendor, amount
+       FROM expenses WHERE expense_date >= $1 AND expense_date < $2
+      ORDER BY expense_date ASC, amount DESC`,
+    [start, end]
+  );
+  return rows.map((e) => ({
+    id: e.id,
+    expense_date: e.expense_date,
+    category: e.category,
+    description: e.description,
+    vendor: e.vendor,
+    amount: round2(e.amount),
+  }));
+}
+
+async function topPatients(start, end, limit = 5) {
+  const rows = await q(
+    `SELECT pt.id, pt.full_name, pt.phone, COALESCE(SUM(p.amount), 0) AS spend
+       FROM payments p JOIN patients pt ON pt.id = p.patient_id
+      WHERE p.payment_date >= $1 AND p.payment_date < $2
+      GROUP BY pt.id, pt.full_name, pt.phone ORDER BY spend DESC LIMIT ${Number(limit) || 5}`,
+    [start, end]
+  );
+  return rows.map((p) => ({ id: p.id, full_name: p.full_name, phone: p.phone, total_spend: round2(p.spend) }));
+}
+
+async function newPatientsCount(start, end) {
+  const [{ n }] = await q(`SELECT COUNT(*) AS n FROM patients WHERE created_at >= $1 AND created_at < $2`, [start, end]);
+  return num(n);
+}
+
+async function statusBreakdown(start, end) {
+  const rows = await q(
+    `SELECT status, COUNT(*) AS count FROM appointments
+      WHERE appointment_date >= $1 AND appointment_date < $2 GROUP BY status`,
+    [start, end]
+  );
+  return rows.map((s) => ({ status: s.status, count: num(s.count) }));
+}
+
+// Per-day revenue / expenses / profit for every calendar day in [start, end).
+async function dailyBreakdown(start, end) {
+  const paymentsByDay = await q(
+    `SELECT payment_date::text AS d, COALESCE(SUM(amount), 0) AS amount
+       FROM payments WHERE payment_date >= $1 AND payment_date < $2 GROUP BY payment_date`,
+    [start, end]
+  );
+  const expensesByDay = await q(
+    `SELECT expense_date::text AS d, COALESCE(SUM(amount), 0) AS amount
+       FROM expenses WHERE expense_date >= $1 AND expense_date < $2 GROUP BY expense_date`,
+    [start, end]
+  );
+  const revByDay = Object.fromEntries(paymentsByDay.map((r) => [r.d, round2(r.amount)]));
+  const expByDay = Object.fromEntries(expensesByDay.map((r) => [r.d, round2(r.amount)]));
+  const days = [];
+  for (let cur = start; cur < end; cur = addDaysStr(cur, 1)) {
+    const rev = revByDay[cur] || 0;
+    const exp = expByDay[cur] || 0;
+    days.push({ date: cur, revenue: rev, expenses: exp, profit: round2(rev - exp) });
+  }
+  return days;
+}
+
+// Assemble the fields shared by monthly + weekly reports for [start, end).
+async function buildPeriodReport(start, end) {
+  const totalRevenue = await sumPayments(start, end);
+  const totalExpenses = await sumExpenses(start, end);
+  const serviceRows = await revenueByService(start, end);
+  const methodRows = await revenueByMethod(start, end);
+  const paymentRows = await paymentItems(start, end);
+  const categoryRows = await expensesByCategory(start, end);
+  const expenseItemRows = await expenseItems(start, end);
+  const dailyRows = await dailyBreakdown(start, end);
+  const patientRows = await topPatients(start, end);
+  const newPatients = await newPatientsCount(start, end);
+  const statusRows = await statusBreakdown(start, end);
+
+  const netProfit = round2(totalRevenue - totalExpenses);
+  const appointmentsCompleted = statusRows.find((s) => s.status === 'COMPLETED')?.count || 0;
+
+  return {
+    period: { start, end },
+    summary: {
+      total_revenue: totalRevenue,
+      total_expenses: totalExpenses,
+      net_profit: netProfit,
+      new_patients: newPatients,
+    },
+    revenue_by_service: serviceRows,
+    revenue_by_method: methodRows,
+    payment_items: paymentRows,
+    expenses_by_category: categoryRows,
+    expense_items: expenseItemRows,
+    daily_breakdown: dailyRows,
+    top_patients: patientRows,
+    appointment_status_breakdown: statusRows,
+    // Flat aliases the Reports UI reads.
+    totalRevenue,
+    totalExpenses,
+    netProfit,
+    newPatients,
+    appointmentsCompleted,
+    revenueByService: serviceRows.map((r) => ({ service: r.service_name, amount: r.revenue })),
+    revenueByMethod: methodRows,
+    paymentItems: paymentRows,
+    expensesByCategory: categoryRows,
+    expenseItems: expenseItemRows,
+    daily: dailyRows,
+    topPatients: patientRows.map((p) => ({ name: p.full_name, amount: p.total_spend })),
+  };
+}
+
 async function getDailyReport(date) {
   const [{ revenue }] = await q(
     `SELECT COALESCE(SUM(amount), 0) AS revenue FROM payments WHERE payment_date = $1`,
@@ -103,110 +296,29 @@ async function getDailyReport(date) {
 
 async function getMonthlyReport(year, month) {
   const { start, end } = monthBounds(year, month);
-
-  const totalRevenue = await sumPayments(start, end);
-  const totalExpenses = await sumExpenses(start, end);
-
-  const byService = await q(
-    `SELECT COALESCE(s.name, 'Other / Unlinked') AS service_name,
-            COALESCE(SUM(p.amount), 0) AS revenue,
-            COUNT(p.id) AS payment_count
-       FROM payments p
-       JOIN invoices i ON i.id = p.invoice_id
-       LEFT JOIN appointments a ON a.id = i.appointment_id
-       LEFT JOIN services s ON s.id = a.service_id
-      WHERE p.payment_date >= $1 AND p.payment_date < $2
-      GROUP BY s.name
-      ORDER BY revenue DESC`,
-    [start, end]
-  );
-
-  const byMethod = await q(
-    `SELECT payment_method, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count
-       FROM payments WHERE payment_date >= $1 AND payment_date < $2
-      GROUP BY payment_method ORDER BY amount DESC`,
-    [start, end]
-  );
-
-  const paymentsByDay = await q(
-    `SELECT payment_date::text AS d, COALESCE(SUM(amount), 0) AS amount
-       FROM payments WHERE payment_date >= $1 AND payment_date < $2
-      GROUP BY payment_date`,
-    [start, end]
-  );
-  const expensesByDay = await q(
-    `SELECT expense_date::text AS d, COALESCE(SUM(amount), 0) AS amount
-       FROM expenses WHERE expense_date >= $1 AND expense_date < $2
-      GROUP BY expense_date`,
-    [start, end]
-  );
-  const revByDay = Object.fromEntries(paymentsByDay.map((r) => [r.d, round2(r.amount)]));
-  const expByDay = Object.fromEntries(expensesByDay.map((r) => [r.d, round2(r.amount)]));
-
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const dailyBreakdown = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key = `${year}-${pad2(month)}-${pad2(d)}`;
-    const rev = revByDay[key] || 0;
-    const exp = expByDay[key] || 0;
-    dailyBreakdown.push({ date: key, revenue: rev, expenses: exp, profit: round2(rev - exp) });
-  }
-
-  const topPatients = await q(
-    `SELECT pt.id, pt.full_name, pt.phone, COALESCE(SUM(p.amount), 0) AS spend
-       FROM payments p
-       JOIN patients pt ON pt.id = p.patient_id
-      WHERE p.payment_date >= $1 AND p.payment_date < $2
-      GROUP BY pt.id, pt.full_name, pt.phone
-      ORDER BY spend DESC
-      LIMIT 5`,
-    [start, end]
-  );
-
-  const [{ new_patients }] = await q(
-    `SELECT COUNT(*) AS new_patients FROM patients WHERE created_at >= $1 AND created_at < $2`,
-    [start, end]
-  );
-
-  const statusBreakdown = await q(
-    `SELECT status, COUNT(*) AS count
-       FROM appointments WHERE appointment_date >= $1 AND appointment_date < $2
-      GROUP BY status`,
-    [start, end]
-  );
-
-  const netProfit = round2(totalRevenue - totalExpenses);
-  const statusRows = statusBreakdown.map((s) => ({ status: s.status, count: num(s.count) }));
-  const appointmentsCompleted = statusRows.find((s) => s.status === 'COMPLETED')?.count || 0;
-  const serviceRows = byService.map((r) => ({ service_name: r.service_name, revenue: round2(r.revenue), payment_count: num(r.payment_count) }));
-  const methodRows = byMethod.map((r) => ({ method: r.payment_method, amount: round2(r.amount), count: num(r.count) }));
-  const patientRows = topPatients.map((p) => ({ id: p.id, full_name: p.full_name, phone: p.phone, total_spend: round2(p.spend) }));
-
+  const base = await buildPeriodReport(start, end);
   return {
     year,
     month,
-    period: { start, end },
-    summary: {
-      total_revenue: totalRevenue,
-      total_expenses: totalExpenses,
-      net_profit: netProfit,
-      new_patients: num(new_patients),
-    },
-    revenue_by_service: serviceRows,
-    revenue_by_method: methodRows,
-    daily_breakdown: dailyBreakdown,
-    top_patients: patientRows,
-    appointment_status_breakdown: statusRows,
-    // Flat aliases the Reports UI reads.
-    totalRevenue,
-    totalExpenses,
-    netProfit,
-    newPatients: num(new_patients),
-    appointmentsCompleted,
-    revenueByService: serviceRows.map((r) => ({ service: r.service_name, amount: r.revenue })),
-    revenueByMethod: methodRows,
-    daily: dailyBreakdown,
-    topPatients: patientRows.map((p) => ({ name: p.full_name, amount: p.total_spend })),
+    report_type: 'MONTHLY',
+    period_label: `${MONTH_NAMES_FULL[month - 1]} ${year}`,
+    ...base,
+  };
+}
+
+// Weekly report for the 7-day window [start, start+7). `start` is a YYYY-MM-DD
+// (the controller snaps to the Monday of the chosen week). Same rich shape as
+// the monthly report so the UI + PDF renderer can treat them uniformly.
+async function getWeeklyReport(start) {
+  const end = addDaysStr(start, 7);
+  const lastDay = addDaysStr(start, 6);
+  const base = await buildPeriodReport(start, end);
+  return {
+    report_type: 'WEEKLY',
+    period_label: `${dayLabel(start)} – ${dayLabel(lastDay)}`,
+    week_start: start,
+    week_end: lastDay,
+    ...base,
   };
 }
 
@@ -332,6 +444,7 @@ async function getOutstandingBalances() {
 export {
   getDailyReport,
   getMonthlyReport,
+  getWeeklyReport,
   getYearlyReport,
   getOutstandingBalances,
 };

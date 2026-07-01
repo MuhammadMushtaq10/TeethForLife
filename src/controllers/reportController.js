@@ -21,6 +21,20 @@ function parseMonth(raw) {
   if (!Number.isInteger(m) || m < 1 || m > 12) return null;
   return m;
 }
+function parseDateStr(raw) {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : raw;
+}
+// Monday of the ISO week containing `dateStr` (calendar-date math, UTC-anchored).
+function weekStartOf(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dow = dt.getUTCDay(); // 0=Sun..6=Sat
+  const mondayOffset = dow === 0 ? 6 : dow - 1;
+  dt.setUTCDate(dt.getUTCDate() - mondayOffset);
+  return dt.toISOString().slice(0, 10);
+}
 
 async function daily(req, res) {
   try {
@@ -49,6 +63,21 @@ async function monthly(req, res) {
   } catch (err) {
     console.error('Monthly report error:', err);
     res.status(500).json({ error: 'Failed to build monthly report' });
+  }
+}
+
+async function weekly(req, res) {
+  try {
+    const raw = req.query.start || req.query.date || karachiToday();
+    const dateStr = parseDateStr(raw);
+    if (!dateStr) {
+      return res.status(400).json({ error: 'Invalid date (expected YYYY-MM-DD)' });
+    }
+    const report = await reportsService.getWeeklyReport(weekStartOf(dateStr));
+    res.json(report);
+  } catch (err) {
+    console.error('Weekly report error:', err);
+    res.status(500).json({ error: 'Failed to build weekly report' });
   }
 }
 
@@ -92,7 +121,7 @@ async function monthlyPdf(req, res) {
 
     const doc = pdfService.createDoc();
     doc.pipe(res);
-    pdfService.renderMonthlyReport(doc, report);
+    pdfService.renderPeriodReport(doc, report);
     doc.end();
   } catch (err) {
     console.error('Monthly report PDF error:', err);
@@ -100,4 +129,27 @@ async function monthlyPdf(req, res) {
   }
 }
 
-export { daily, monthly, yearly, outstanding, monthlyPdf };
+async function weeklyPdf(req, res) {
+  try {
+    const raw = req.query.start || req.query.date || karachiToday();
+    const dateStr = parseDateStr(raw);
+    if (!dateStr) {
+      return res.status(400).json({ error: 'Invalid date (expected YYYY-MM-DD)' });
+    }
+    const start = weekStartOf(dateStr);
+    const report = await reportsService.getWeeklyReport(start);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=weekly-report-${start}.pdf`);
+
+    const doc = pdfService.createDoc();
+    doc.pipe(res);
+    pdfService.renderPeriodReport(doc, report);
+    doc.end();
+  } catch (err) {
+    console.error('Weekly report PDF error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to generate weekly report PDF' });
+  }
+}
+
+export { daily, monthly, weekly, yearly, outstanding, monthlyPdf, weeklyPdf };

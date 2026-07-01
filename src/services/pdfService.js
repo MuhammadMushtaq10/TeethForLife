@@ -1,5 +1,17 @@
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { clinic } from '../config/clinic.js';
+
+// Faint centered logo watermark for every generated PDF. Loaded once at import;
+// the `new URL(..., import.meta.url)` form lets the serverless bundler trace and
+// include the asset. If it's missing/unbundled, PDFs still render without it.
+let WATERMARK = null;
+try {
+  WATERMARK = fs.readFileSync(fileURLToPath(new URL('../assests/teethforLife_watermark.png', import.meta.url)));
+} catch {
+  WATERMARK = null;
+}
 
 // PDF builders for invoices, monthly reports and patient ledgers.
 // Each `render*` function takes a live PDFDocument and writes into it; the
@@ -8,9 +20,30 @@ import { clinic } from '../config/clinic.js';
 // all currency in ASCII ("PKR 1,234.00") to avoid glyph issues.
 
 const MARGIN = 50;
-const ACCENT = '#0d9488'; // teal — matches the clinic brand
+const ACCENT = '#00A6FF'; // brand blue — matches the clinic UI theme (tailwind `primary`)
+const ACCENT_SOFT = '#e8f5ff'; // light brand tint for table headers / section bands
 const MUTED = '#666666';
 const LINE = '#dddddd';
+
+// Stamp a small, faint, centered logo behind the page content. Drawn first (so
+// text sits on top) via createDoc's first-page call + the 'pageAdded' hook.
+function drawWatermark(doc) {
+  const img = doc._watermark; // opened once per doc (see createDoc) so the PNG
+  if (!img) return;           // embeds a single time and is reused on every page
+  const size = 200; // small centered mark (~1/3 of A4 width)
+  const x = (doc.page.width - size) / 2;
+  const y = (doc.page.height - size) / 2 - 170; // sit in the upper white area, above the tables
+  doc.save();
+  try {
+    doc.opacity(0.13);
+    doc.image(img, x, y, { fit: [size, size], align: 'center', valign: 'center' });
+  } catch {
+    // decorative only — never let a watermark failure break the PDF
+  } finally {
+    doc.opacity(1);
+    doc.restore();
+  }
+}
 
 function money(n) {
   const v = Number(n) || 0;
@@ -55,12 +88,22 @@ function header(doc, docType) {
   doc.moveDown(1);
   doc.fillColor('#000000');
   doc.y = Math.max(doc.y, top + 60);
-  hr(doc);
+  // Branded accent rule under the letterhead (clinic theme colour).
+  doc.moveTo(MARGIN, doc.y).lineTo(doc.page.width - MARGIN, doc.y).strokeColor(ACCENT).lineWidth(2).stroke();
+  doc.moveDown(0.6);
+}
+
+// Small section heading in the clinic accent colour.
+function sectionTitle(doc, text) {
+  ensureSpace(doc, 40);
+  doc.moveDown(0.6);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(ACCENT).text(text, MARGIN, doc.y);
+  doc.fillColor('#000000').moveDown(0.3);
 }
 
 // Simple table. columns: [{ label, key, width, align, fmt }]. width is a
 // fraction of content width. rows: array of plain objects.
-function table(doc, columns, rows, { headerFill = '#f3f4f6' } = {}) {
+function table(doc, columns, rows, { headerFill = ACCENT_SOFT } = {}) {
   const cw = contentWidth(doc);
   const widths = columns.map((c) => c.width * cw);
   const xs = [];
@@ -139,8 +182,12 @@ function renderInvoice(doc, invoice) {
   doc.moveDown(1.5);
   doc.x = MARGIN;
 
-  // Items
-  const items = [{ description: invoice.service_name || 'Dental services', amount: invoice.subtotal }];
+  // Items — the invoice note is folded into the Description cell (second line)
+  // rather than a separate block, so the line item carries its own context.
+  const noteText = (invoice.notes || '').trim();
+  const baseDesc = invoice.service_name || 'Dental services';
+  const description = noteText ? `${baseDesc}\n${noteText}` : baseDesc;
+  const items = [{ description, amount: invoice.subtotal }];
   table(
     doc,
     [
@@ -177,23 +224,30 @@ function renderInvoice(doc, invoice) {
     );
   }
 
-  if (invoice.notes) {
-    doc.moveDown(1);
-    ensureSpace(doc, 40);
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text('Notes', MARGIN, doc.y);
-    doc.font('Helvetica').fontSize(9).fillColor('#000000').text(invoice.notes, { width: contentWidth(doc) });
-  }
-
   footer(doc);
 }
 
-// ── Monthly report ───────────────────────────────────────────────────────────
-function renderMonthlyReport(doc, report) {
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  header(doc, 'MONTHLY REPORT');
+// ── Period report (monthly / weekly) ─────────────────────────────────────────
+const METHOD_LABELS = {
+  CASH: 'Cash', ONLINE: 'Online', CARD: 'Card',
+  BANK_TRANSFER: 'Bank Transfer', EASYPAISA: 'EasyPaisa', JAZZCASH: 'JazzCash',
+};
+const CATEGORY_LABELS = {
+  SUPPLIES: 'Supplies', EQUIPMENT: 'Equipment', SALARY: 'Salary',
+  RENT: 'Rent', UTILITIES: 'Utilities', OTHER: 'Other',
+};
+const methodLabel = (m) => METHOD_LABELS[m] || m || '—';
+const categoryLabel = (c) => CATEGORY_LABELS[c] || c || '—';
+
+// Renders a monthly OR weekly report. Shape (from reportsService):
+//   { report_type, period_label, summary, revenue_by_service, revenue_by_method,
+//     expenses_by_category, expense_items, daily_breakdown }
+function renderPeriodReport(doc, report) {
+  const isWeekly = report.report_type === 'WEEKLY';
+  header(doc, isWeekly ? 'WEEKLY REPORT' : 'MONTHLY REPORT');
 
   doc.font('Helvetica-Bold').fontSize(13).fillColor('#111111')
-    .text(`${MONTHS[report.month - 1]} ${report.year}`, MARGIN, doc.y);
+    .text(report.period_label || '', MARGIN, doc.y);
   doc.moveDown(0.8);
 
   // Summary
@@ -202,30 +256,42 @@ function renderMonthlyReport(doc, report) {
   kv(doc, 'Net Profit', money(report.summary.net_profit), { bold: true });
   kv(doc, 'New Patients', String(report.summary.new_patients));
 
-  // Revenue by service
-  if (report.revenue_by_service?.length) {
-    doc.moveDown(1);
-    ensureSpace(doc, 40);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111111').text('Revenue by Service', MARGIN, doc.y);
-    doc.moveDown(0.3);
+  // ── Revenue: each payment received (who paid what) ──────────────────────
+  if (report.payment_items?.length) {
+    sectionTitle(doc, 'Revenue — Payments Received');
     table(
       doc,
       [
-        { label: 'Service', key: 'service_name', width: 0.6 },
-        { label: 'Payments', key: 'payment_count', width: 0.2, align: 'right' },
-        { label: 'Revenue', key: 'revenue', width: 0.2, align: 'right', fmt: money },
+        { label: 'Date', key: 'payment_date', width: 0.16, fmt: fmtDate },
+        { label: 'Patient', key: 'patient_name', width: 0.33, fmt: (v) => v || '—' },
+        { label: 'Invoice #', key: 'invoice_number', width: 0.21, fmt: (v) => v || '—' },
+        { label: 'Method', key: 'method', width: 0.15, fmt: methodLabel },
+        { label: 'Amount', key: 'amount', width: 0.15, align: 'right', fmt: money },
       ],
-      report.revenue_by_service
+      report.payment_items
+    );
+  }
+
+  // ── Expenses: each expense line ─────────────────────────────────────────
+  if (report.expense_items?.length) {
+    sectionTitle(doc, 'Expenses');
+    table(
+      doc,
+      [
+        { label: 'Date', key: 'expense_date', width: 0.18, fmt: fmtDate },
+        { label: 'Category', key: 'category', width: 0.18, fmt: categoryLabel },
+        { label: 'Description', key: 'description', width: 0.32, fmt: (v) => v || '—' },
+        { label: 'Vendor', key: 'vendor', width: 0.17, fmt: (v) => v || '—' },
+        { label: 'Amount', key: 'amount', width: 0.15, align: 'right', fmt: money },
+      ],
+      report.expense_items
     );
   }
 
   // Daily breakdown (only days with any activity, to stay readable)
   const activeDays = (report.daily_breakdown || []).filter((d) => d.revenue !== 0 || d.expenses !== 0);
   if (activeDays.length) {
-    doc.moveDown(1);
-    ensureSpace(doc, 40);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111111').text('Daily Breakdown', MARGIN, doc.y);
-    doc.moveDown(0.3);
+    sectionTitle(doc, 'Daily Breakdown');
     table(
       doc,
       [
@@ -291,8 +357,20 @@ function renderPatientLedger(doc, ledger) {
 }
 
 // Convenience: create a doc, hand it to the caller for piping, return it.
+// Every page gets the faint centered watermark: the first page is stamped here,
+// and the 'pageAdded' hook stamps any page added later (before content flows on).
 function createDoc() {
-  return new PDFDocument({ size: 'A4', margin: MARGIN });
+  const doc = new PDFDocument({ size: 'A4', margin: MARGIN });
+  // Open the watermark PNG once per document — pdfkit then embeds the image data
+  // a single time and references it on every page (a raw Buffer would re-embed).
+  try {
+    doc._watermark = WATERMARK ? doc.openImage(WATERMARK) : null;
+  } catch {
+    doc._watermark = null;
+  }
+  doc.on('pageAdded', () => drawWatermark(doc));
+  drawWatermark(doc);
+  return doc;
 }
 
-export { createDoc, renderInvoice, renderMonthlyReport, renderPatientLedger };
+export { createDoc, renderInvoice, renderPeriodReport, renderPatientLedger };
