@@ -1,4 +1,4 @@
-import { invoiceCreateSchema, invoiceUpdateSchema, paymentSchema } from '../validators/schemas.js';
+import { invoiceCreateSchema, invoiceUpdateSchema, paymentSchema, paymentUpdateSchema } from '../validators/schemas.js';
 import * as invoiceService from '../services/invoiceService.js';
 import * as patientService from '../services/patientService.js';
 import * as pdfService from '../services/pdfService.js';
@@ -63,19 +63,24 @@ async function updateInvoice(req, res) {
     if (!result.success) {
       return res.status(400).json({ errors: result.error.errors });
     }
-    const { discount_amount, discount_reason, notes, status } = result.data;
+    const { subtotal, discount_amount, discount_reason, notes, status, invoice_date } = result.data;
 
     const updated = await invoiceService.updateInvoice(req.params.id, {
+      subtotal,
       discountAmount: discount_amount,
       discountReason: discount_reason,
       notes,
       status,
+      invoiceDate: invoice_date,
     });
     if (!updated) return res.status(404).json({ error: 'Invoice not found' });
 
     const invoice = await invoiceService.getInvoiceWithPayments(req.params.id);
     res.json({ message: 'Invoice updated', invoice });
   } catch (err) {
+    if (err?.code === 'INVALID_AMOUNTS') {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('Update invoice error:', err);
     res.status(500).json({ error: 'Failed to update invoice' });
   }
@@ -132,6 +137,31 @@ async function deleteInvoice(req, res) {
     }
     console.error('Delete invoice error:', err);
     res.status(500).json({ error: 'Failed to delete invoice' });
+  }
+}
+
+async function updatePayment(req, res) {
+  try {
+    const result = paymentUpdateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ errors: result.error.errors });
+    }
+    const { amount, payment_method, payment_date, received_by, notes } = result.data;
+
+    const updated = await invoiceService.updatePayment(req.params.id, req.params.paymentId, {
+      amount,
+      paymentMethod: payment_method,
+      paymentDate: payment_date,
+      receivedBy: received_by,
+      notes,
+    });
+    if (!updated) return res.status(404).json({ error: 'Payment not found' });
+
+    const invoice = await invoiceService.getInvoiceWithPayments(req.params.id);
+    res.json({ message: 'Payment updated', invoice });
+  } catch (err) {
+    console.error('Update payment error:', err);
+    res.status(500).json({ error: 'Failed to update payment' });
   }
 }
 
@@ -201,6 +231,7 @@ export {
   getInvoice,
   updateInvoice,
   addPayment,
+  updatePayment,
   cancelInvoice,
   deleteInvoice,
   deletePayment,

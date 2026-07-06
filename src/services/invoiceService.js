@@ -314,22 +314,33 @@ async function getPatientLedger(patientId) {
   };
 }
 
-async function updateInvoice(invoiceId, { discountAmount, discountReason, notes, status } = {}) {
+async function updateInvoice(invoiceId, { subtotal, discountAmount, discountReason, notes, status, invoiceDate } = {}) {
   return AppDataSource.transaction(async (manager) => {
     const repo = manager.getRepository(Invoice);
     const invoice = await repo.findOne({ where: { id: invoiceId } });
     if (!invoice) return null;
 
-    if (discountAmount !== undefined) {
-      invoice.discount_amount = round2(discountAmount);
-      invoice.total_amount = round2(num(invoice.subtotal) - invoice.discount_amount);
+    // Recompute the money whenever subtotal OR discount is touched, using the
+    // existing value for whichever wasn't supplied.
+    const amountChanged = subtotal !== undefined || discountAmount !== undefined;
+    if (amountChanged) {
+      const newSubtotal = subtotal !== undefined ? round2(subtotal) : round2(invoice.subtotal);
+      const newDiscount = discountAmount !== undefined ? round2(discountAmount) : round2(invoice.discount_amount);
+      if (newDiscount > newSubtotal) {
+        const err = new Error('Discount cannot exceed subtotal');
+        err.code = 'INVALID_AMOUNTS';
+        throw err;
+      }
+      invoice.subtotal = newSubtotal;
+      invoice.discount_amount = newDiscount;
+      invoice.total_amount = round2(newSubtotal - newDiscount);
     }
     if (discountReason !== undefined) invoice.discount_reason = discountReason || null;
     if (notes !== undefined) invoice.notes = notes || null;
 
     if (status !== undefined) {
       invoice.status = status;
-    } else if (discountAmount !== undefined) {
+    } else if (amountChanged) {
       // Total changed — re-derive payment status from what's actually been paid.
       const [{ paid }] = await manager.query(
         `SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE invoice_id = $1`,
@@ -338,7 +349,48 @@ async function updateInvoice(invoiceId, { discountAmount, discountReason, notes,
       invoice.status = computeStatus(round2(invoice.total_amount), round2(paid));
     }
 
-    return repo.save(invoice);
+    const saved = await repo.save(invoice);
+
+    // created_at is a createDate column — TypeORM won't touch it on save(), so
+    // rewrite the invoice date with a raw UPDATE. Noon keeps the calendar date
+    // stable regardless of server/DB timezone.
+    if (invoiceDate) {
+      await manager.query(`UPDATE invoices SET created_at = $1 WHERE id = $2`, [`${invoiceDate} 12:00:00+00`, invoiceId]);
+    }
+
+    return saved;
+  });
+}
+
+// Admin correction of a single recorded payment, scoped to its invoice (a
+// mismatched pair returns null → 404). Editing the amount re-derives the
+// invoice's paid/unpaid status; a CANCELLED invoice stays CANCELLED (mirrors
+// deletePayment). Returns null if the payment isn't found, else { id }.
+async function updatePayment(invoiceId, paymentId, { amount, paymentMethod, paymentDate, receivedBy, notes } = {}) {
+  return AppDataSource.transaction(async (manager) => {
+    const invRepo = manager.getRepository(Invoice);
+    const payRepo = manager.getRepository(Payment);
+
+    const payment = await payRepo.findOne({ where: { id: paymentId, invoice_id: invoiceId } });
+    if (!payment) return null;
+
+    if (amount !== undefined) payment.amount = round2(amount);
+    if (paymentMethod !== undefined) payment.payment_method = paymentMethod;
+    if (paymentDate !== undefined) payment.payment_date = paymentDate;
+    if (receivedBy !== undefined) payment.received_by = receivedBy || null;
+    if (notes !== undefined) payment.notes = notes || null;
+    await payRepo.save(payment);
+
+    const invoice = await invRepo.findOne({ where: { id: invoiceId } });
+    if (invoice && invoice.status !== 'CANCELLED') {
+      const [{ paid }] = await manager.query(
+        `SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE invoice_id = $1`,
+        [invoiceId]
+      );
+      invoice.status = computeStatus(round2(invoice.total_amount), round2(paid));
+      await invRepo.save(invoice);
+    }
+    return { id: paymentId };
   });
 }
 
@@ -481,6 +533,7 @@ export {
   listInvoices,
   getPatientLedger,
   updateInvoice,
+  updatePayment,
   cancelInvoice,
   deleteInvoice,
   deletePayment,

@@ -3,9 +3,12 @@ import { z } from 'zod';
 const pakistaniPhone = z.string().regex(/^(\+92|0)[0-9]{10}$/, 'Invalid Pakistani phone number');
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)');
 
+const timeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time format (HH:MM)');
+
 const PAYMENT_METHODS = ['CASH', 'ONLINE', 'CARD', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH'];
 const EXPENSE_CATEGORIES = ['SUPPLIES', 'EQUIPMENT', 'SALARY', 'RENT', 'UTILITIES', 'OTHER'];
 const INVOICE_STATUSES = ['UNPAID', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'];
+const APPOINTMENT_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'NO_SHOW', 'COMPLETED'];
 
 const bookingSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -72,6 +75,27 @@ const adminBookingSchema = z.object({
   date_of_birth: z.string().optional(),
 });
 
+// Admin edit of an existing appointment. All fields optional. Unlike booking,
+// the date is NOT restricted to future/non-Sunday — an admin must be able to
+// backdate or fix an appointment (e.g. logging a visit from two days ago).
+const appointmentUpdateSchema = z.object({
+  status: z.enum(APPOINTMENT_STATUSES).optional(),
+  notes: z.string().optional().nullable(),
+  showed_up: z.boolean().optional(),
+  appointment_date: dateStr.optional(),
+  appointment_time: timeStr.optional(),
+  service_id: z.string().uuid('Invalid service ID').optional(),
+});
+
+// Admin edit of a patient's details (all optional). Phone still must match the
+// Pakistani format; a duplicate phone is caught at the DB layer (unique constraint).
+const patientUpdateSchema = z.object({
+  full_name: z.string().min(2, 'Name must be at least 2 characters').optional(),
+  phone: pakistaniPhone.optional(),
+  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
+  date_of_birth: z.string().optional().nullable().or(z.literal('')),
+});
+
 const reviewSchema = z.object({
   full_name: z.string().min(2),
   phone: pakistaniPhone,
@@ -117,11 +141,16 @@ const invoiceCreateSchema = z
     path: ['phone'],
   });
 
+// Admin correction of an invoice — every money field and the invoice date can
+// be fixed. subtotal/discount re-derive total_amount and payment status in the
+// service. invoice_date rewrites created_at (the date shown on the invoice).
 const invoiceUpdateSchema = z.object({
+  subtotal: z.coerce.number().nonnegative().optional(),
   discount_amount: z.coerce.number().nonnegative().optional(),
   discount_reason: z.string().max(255).optional().nullable(),
   notes: z.string().optional().nullable(),
   status: z.enum(INVOICE_STATUSES).optional(),
+  invoice_date: dateStr.optional(),
 });
 
 const paymentSchema = z.object({
@@ -130,6 +159,16 @@ const paymentSchema = z.object({
   payment_date: dateStr,
   received_by: z.string().max(100).optional(),
   notes: z.string().optional(),
+});
+
+// Admin correction of a recorded payment (all fields optional). Editing the
+// amount re-derives the parent invoice's paid/unpaid status.
+const paymentUpdateSchema = z.object({
+  amount: z.coerce.number().positive('Amount must be greater than 0').optional(),
+  payment_method: z.enum(PAYMENT_METHODS).optional(),
+  payment_date: dateStr.optional(),
+  received_by: z.string().max(100).optional().nullable(),
+  notes: z.string().optional().nullable(),
 });
 
 const treatmentCreateSchema = z.object({
@@ -174,12 +213,15 @@ export {
   bookingSchema,
   whatsappBookingSchema,
   adminBookingSchema,
+  appointmentUpdateSchema,
+  patientUpdateSchema,
   reviewSchema,
   availabilityQuerySchema,
   contactSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
   paymentSchema,
+  paymentUpdateSchema,
   treatmentCreateSchema,
   treatmentUpdateSchema,
   expenseCreateSchema,

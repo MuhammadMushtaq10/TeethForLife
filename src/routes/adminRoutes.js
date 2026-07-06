@@ -24,6 +24,8 @@ router.delete('/appointments/:id', adminController.deleteAppointment);
 
 // ── Patients (+ accounting sub-resources) ─────────────────────────────────────
 router.get('/patients', adminController.listPatients);
+router.get('/patients/:id', adminController.getPatient);
+router.patch('/patients/:id', adminController.updatePatient);
 router.get('/patients/:id/treatments', treatmentController.getPatientTreatments);
 router.get('/patients/:id/ledger', invoiceController.getPatientLedger);
 router.get('/patients/:id/ledger/pdf', invoiceController.getPatientLedgerPdf);
@@ -35,6 +37,7 @@ router.get('/invoices/:id', invoiceController.getInvoice);
 router.get('/invoices/:id/pdf', invoiceController.getInvoicePdf);
 router.patch('/invoices/:id', invoiceController.updateInvoice);
 router.post('/invoices/:id/payments', invoiceController.addPayment);
+router.patch('/invoices/:id/payments/:paymentId', invoiceController.updatePayment);
 router.delete('/invoices/:id/payments/:paymentId', invoiceController.deletePayment);
 router.delete('/invoices/:id/cancel', invoiceController.cancelInvoice);
 router.delete('/invoices/:id', invoiceController.deleteInvoice);

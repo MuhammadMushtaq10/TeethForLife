@@ -60,7 +60,7 @@ async function findById(id) {
   return getRepo().findOne({ where: { id } });
 }
 
-async function updateAppointment(id, { status, notes, showed_up }) {
+async function updateAppointment(id, { status, notes, showed_up, appointment_date, appointment_time, service_id }) {
   const repo = getRepo();
   const appointment = await repo.findOne({ where: { id } });
 
@@ -69,6 +69,11 @@ async function updateAppointment(id, { status, notes, showed_up }) {
   if (status) appointment.status = status;
   if (notes !== undefined) appointment.notes = notes;
   if (showed_up !== undefined) appointment.showed_up = showed_up;
+  // Admin corrections: date/time/service can be rescheduled or fixed (incl.
+  // backdating). A date/time change is subject to the active-slot unique index.
+  if (appointment_date !== undefined) appointment.appointment_date = appointment_date;
+  if (appointment_time !== undefined) appointment.appointment_time = appointment_time;
+  if (service_id !== undefined) appointment.service_id = service_id;
 
   try {
     return await repo.save(appointment);

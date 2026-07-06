@@ -1,4 +1,4 @@
-import { adminBookingSchema } from '../validators/schemas.js';
+import { adminBookingSchema, appointmentUpdateSchema, patientUpdateSchema } from '../validators/schemas.js';
 import * as adminService from '../services/adminService.js';
 import * as appointmentService from '../services/appointmentService.js';
 import * as patientService from '../services/patientService.js';
@@ -94,9 +94,20 @@ async function addAppointment(req, res) {
 async function updateAppointment(req, res) {
   try {
     const { id } = req.params;
-    const { status, notes, showed_up } = req.body;
+    const result = appointmentUpdateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ errors: result.error.errors });
+    }
+    const { status, notes, showed_up, appointment_date, appointment_time, service_id } = result.data;
 
-    const saved = await appointmentService.updateAppointment(id, { status, notes, showed_up });
+    const saved = await appointmentService.updateAppointment(id, {
+      status,
+      notes,
+      showed_up,
+      appointment_date,
+      appointment_time,
+      service_id,
+    });
     if (!saved) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
@@ -125,6 +136,9 @@ async function updateAppointment(req, res) {
   } catch (err) {
     if (err?.code === 'SLOT_TAKEN') {
       return res.status(409).json({ error: 'Another active appointment already holds this slot' });
+    }
+    if (err?.code === '23503') {
+      return res.status(400).json({ error: 'Invalid service reference' });
     }
     console.error('Error updating appointment:', err);
     res.status(500).json({ error: 'Failed to update appointment' });
@@ -157,6 +171,36 @@ async function listPatients(req, res) {
   }
 }
 
+async function getPatient(req, res) {
+  try {
+    const patient = await patientService.getById(req.params.id);
+    if (!patient) return res.status(404).json({ error: 'Patient not found' });
+    res.json(patient);
+  } catch (err) {
+    console.error('Get patient error:', err);
+    res.status(500).json({ error: 'Failed to fetch patient' });
+  }
+}
+
+async function updatePatient(req, res) {
+  try {
+    const result = patientUpdateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ errors: result.error.errors });
+    }
+    const updated = await patientService.updatePatient(req.params.id, result.data);
+    if (!updated) return res.status(404).json({ error: 'Patient not found' });
+    res.json({ message: 'Patient updated', patient: updated });
+  } catch (err) {
+    // Unique-violation on phone — another patient already uses this number.
+    if (err?.code === '23505') {
+      return res.status(409).json({ error: 'Another patient already uses this phone number' });
+    }
+    console.error('Update patient error:', err);
+    res.status(500).json({ error: 'Failed to update patient' });
+  }
+}
+
 async function exportAppointments(req, res) {
   try {
     const { from, to } = req.query;
@@ -171,4 +215,4 @@ async function exportAppointments(req, res) {
   }
 }
 
-export { login, getDashboard, listAppointments, addAppointment, updateAppointment, deleteAppointment, listPatients, exportAppointments };
+export { login, getDashboard, listAppointments, addAppointment, updateAppointment, deleteAppointment, listPatients, getPatient, updatePatient, exportAppointments };

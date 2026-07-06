@@ -47,4 +47,24 @@ async function count() {
   return getRepo().count();
 }
 
-export { findByPhone, upsertByPhone, findAll, count };
+async function getById(id) {
+  return getRepo().findOne({ where: { id } });
+}
+
+// Admin correction of a patient's details. All fields optional; only provided
+// ones are changed. Returns null if the patient doesn't exist. A duplicate phone
+// surfaces as a Postgres 23505 (unique violation) for the controller to map.
+async function updatePatient(id, { full_name, phone, email, date_of_birth } = {}) {
+  const repo = getRepo();
+  const patient = await repo.findOne({ where: { id } });
+  if (!patient) return null;
+
+  if (full_name !== undefined) patient.full_name = full_name;
+  if (phone !== undefined) patient.phone = phone;
+  if (email !== undefined) patient.email = email || null;
+  if (date_of_birth !== undefined) patient.date_of_birth = date_of_birth || null;
+
+  return repo.save(patient);
+}
+
+export { findByPhone, upsertByPhone, findAll, count, getById, updatePatient };

@@ -27,6 +27,13 @@ const Service = new EntitySchema({
       type: 'boolean',
       default: true,
     },
+    // Public URL/path to the service's photo. Left NULL as a placeholder until
+    // real images are supplied — the frontend should fall back to a placeholder.
+    image_url: {
+      type: 'varchar',
+      length: 500,
+      nullable: true,
+    },
   },
   relations: {
     appointments: {
