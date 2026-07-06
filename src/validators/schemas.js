@@ -68,7 +68,9 @@ const adminBookingSchema = z.object({
   full_name: z.string().min(2),
   phone: pakistaniPhone,
   email: z.string().email().optional().or(z.literal('')),
-  service_id: z.string().uuid(),
+  // Optional: a follow-up booked from the invoice flow may not have a service
+  // decided yet. When omitted the appointment is created with no linked service.
+  service_id: z.string().uuid().optional(),
   appointment_date: z.string(),
   appointment_time: z.string(),
   notes: z.string().optional(),

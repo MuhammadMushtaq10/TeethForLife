@@ -55,16 +55,21 @@ async function addAppointment(req, res) {
 
     const { full_name, phone, email, service_id, appointment_date, appointment_time, notes, date_of_birth } = result.data;
 
-    const service = await dentalService.findActiveById(service_id);
-    if (!service) {
-      return res.status(400).json({ error: 'Invalid service' });
+    // Service is optional (e.g. a follow-up with no service decided yet). Only
+    // validate it when one was supplied.
+    let service = null;
+    if (service_id) {
+      service = await dentalService.findActiveById(service_id);
+      if (!service) {
+        return res.status(400).json({ error: 'Invalid service' });
+      }
     }
 
     const patient = await patientService.upsertByPhone({ full_name, phone, email, date_of_birth });
 
     const saved = await appointmentService.createAppointment({
       patient_id: patient.id,
-      service_id,
+      service_id: service_id || null,
       appointment_date,
       appointment_time,
       status: 'CONFIRMED',
@@ -78,7 +83,7 @@ async function addAppointment(req, res) {
         id: saved.id,
         date: appointment_date,
         time: appointment_time,
-        service: service.name,
+        service: service?.name || null,
         patient: full_name,
       },
     });
